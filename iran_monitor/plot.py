@@ -40,7 +40,8 @@ def draw_chart(result: Assessment, *, demo=False) -> bytes:
                     times.append(time)
                     ratios.append(100 * ratio if ratio is not None else float("nan"))
                     time += STEP
-                color = "#ff807b" if result.status in ("severe", "critical") else "#6ad6cf"
+                display_status = result.historical_status or result.status
+                color = "#ff807b" if display_status in ("severe", "critical") else "#6ad6cf"
                 ax.plot(times, ratios, color=color, linewidth=2.8, label="ترافیک نسبت به مرجع")
                 ax.fill_between(times, ratios, color=color, alpha=0.1)
                 ax.set_xlim(times[0], times[-1] + timedelta(minutes=1))
@@ -63,7 +64,8 @@ def draw_chart(result: Assessment, *, demo=False) -> bytes:
                 spine.set_visible(False)
             ax.legend(loc="upper left", facecolor=background, edgecolor="#2c405d", labelcolor=ink)
             if result.status == "unknown":
-                ax.text(0.5, 0.5, "دادهٔ کافی برای نتیجه‌گیری نداریم", transform=ax.transAxes,
+                label = "آخرین دادهٔ موجود؛ گزارش زنده نیست" if result.historical_status else "دادهٔ کافی برای نتیجه‌گیری نداریم"
+                ax.text(0.5, 0.5, label, transform=ax.transAxes,
                         ha="center", fontsize=17, color="#ffbf69", bbox={"facecolor": background, "alpha": 0.9})
             fig.text(0.96, 0.095, "مرجع: همین ساعت و روز در هفته‌های قبل | عدد ۱۰۰٪ یعنی برابر با مرجع",
                      ha="right", fontsize=11, color="#b8c9e4")

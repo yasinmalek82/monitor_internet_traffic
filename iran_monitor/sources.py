@@ -27,6 +27,14 @@ class SourceError(RuntimeError):
         self.retry_after = retry_after
 
 
+def radar_error_detail(error) -> str:
+    if isinstance(error, SourceError):
+        if error.status:
+            return f"Radar درخواست را با HTTP {error.status} رد کرد."
+        return "ارتباط با Radar برقرار نشد."
+    return "قالب پاسخ Radar قابل پردازش نبود."
+
+
 def fetch(url: str, *, headers=None, data=None, timeout=25) -> bytes:
     request = Request(url, data=data, headers={"User-Agent": "IranInternetMonitor/0.1", **(headers or {})})
     try:

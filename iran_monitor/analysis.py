@@ -1,7 +1,7 @@
 """Pure traffic analysis. Missing measurements never mean zero traffic."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from statistics import median
 
@@ -54,6 +54,7 @@ class Assessment:
     drop_percent: float | None = None
     duration_minutes: int = 0
     recovery_ready: bool = False
+    historical_status: str | None = None
 
 
 def parse_radar(payload: dict) -> RadarData:
@@ -105,10 +106,8 @@ def analyze(data: RadarData, now: datetime) -> Assessment:
 
     if not points:
         return unknown("دادهٔ کامل برای تحلیل نداریم.")
-    if now - (latest + STEP) > timedelta(minutes=60):
-        return unknown("آخرین داده بیش از یک ساعت عقب است؛ وضعیت فعلی مشخص نیست.")
-    if data.updated is None or now - data.updated > timedelta(minutes=60):
-        return unknown("زمان به‌روزرسانی منبع نامشخص یا قدیمی است.")
+    if data.updated is None:
+        return unknown("زمان به‌روزرسانی منبع در پاسخ ثبت نشده است.")
     if data.confidence is None or data.confidence < 5:
         return unknown("اطمینان Cloudflare به کیفیت داده کافی نیست.")
     for annotation in data.annotations:
@@ -142,4 +141,11 @@ def analyze(data: RadarData, now: datetime) -> Assessment:
             break
         duration += 15
         previous = point.time
-    return Assessment(status, "", points, latest, drop, duration, all(r >= 0.8 for r in ratios))
+    result = Assessment(status, "", points, latest, drop, duration, all(r >= 0.8 for r in ratios))
+    if now - (latest + STEP) > timedelta(minutes=60):
+        return replace(result, status="unknown", historical_status=status, recovery_ready=False,
+                       reason="دادهٔ ترافیک بیش از یک ساعت قدیمی است؛ برای وضعیت همین لحظه کافی نیست.")
+    if now - data.updated > timedelta(minutes=60):
+        return replace(result, status="unknown", historical_status=status, recovery_ready=False,
+                       reason="زمان به‌روزرسانی مجموعه‌داده قدیمی است؛ گزارش زنده قابل تأیید نیست.")
+    return result

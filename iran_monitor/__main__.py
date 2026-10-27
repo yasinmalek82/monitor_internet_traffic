@@ -11,8 +11,8 @@ from pathlib import Path
 
 from .analysis import UTC, analyze, parse_radar
 from .config import Config, load_env
-from .reporting import report_text
-from .sources import RadarClient, SourceError, netblocks_reports
+from .reporting import diagnostics_text, report_text
+from .sources import RadarClient, SourceError, netblocks_reports, radar_error_detail
 from .storage import Store
 from .telegram import TelegramClient, TelegramError
 
@@ -67,6 +67,17 @@ def check(config: Config):
         print("WARNING: NetBlocks feed unavailable; monitoring can still use Radar")
 
 
+def diagnose(config: Config, *, now=None):
+    now = now or datetime.now(UTC)
+    try:
+        payload = RadarClient(config.radar_token).traffic(now)
+    except (SourceError, ValueError, KeyError, TypeError) as exc:
+        print(diagnostics_text(now, checked_at=now, fetch_error=radar_error_detail(exc)))
+        return 2
+    print(diagnostics_text(now, payload, checked_at=now, fetched_at=now))
+    return 0
+
+
 def run(config: Config):
     from .app import Monitor
     config.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -116,6 +127,7 @@ def main(argv=None):
     sample = commands.add_parser("demo", help="Generate a clearly marked offline sample without credentials")
     sample.add_argument("--output", type=Path, default=Path("outputs"))
     commands.add_parser("check", help="Read-only check of credentials and live source formats")
+    commands.add_parser("diagnose", help="Read fresh Radar timestamps and source health; sends no Telegram messages")
     commands.add_parser("run", help="Monitor and send alerts to the configured owner")
     commands.add_parser("chat-id", help="Print private chat IDs that have messaged your bot; no messages sent")
     commands.add_parser("configure", help="Enter credentials privately and save the --env file")
@@ -142,6 +154,8 @@ def main(argv=None):
             print("Private chat IDs (choose your own): " + (", ".join(map(str, sorted(ids))) if ids else "none; send /start first"))
             return 0
         config = Config.from_values(values)
+        if args.command == "diagnose":
+            return diagnose(config)
         if args.command == "check":
             check(config)
         else:

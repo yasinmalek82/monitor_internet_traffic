@@ -1,10 +1,12 @@
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 
 from iran_monitor.config import Config, load_env
 from iran_monitor.reporting import report_text
 from iran_monitor.sources import SourceError
+from iran_monitor.analysis import analyze, parse_radar
 from iran_monitor.telegram import TelegramClient, TelegramError, authorized_command
 from tests.test_analysis import NOW, assess, payload
 
@@ -67,6 +69,24 @@ class BotTests(unittest.TestCase):
         text = report_text(assess(payload((None,)*4)), NOW, [], [], [])
         self.assertIn("نامشخص", text)
         self.assertNotIn("۶۲", text)
+
+    def test_stale_report_shows_last_known_drop_and_exact_age(self):
+        now = NOW + timedelta(minutes=60)
+        result = analyze(parse_radar(payload()), now)
+        text = report_text(result, now, [], [], [], checked_at=now, fetched_at=now)
+        self.assertIn("۶۲", text)
+        self.assertIn("۷۵ دقیقه", text)
+        self.assertIn("در آن زمان", text)
+        self.assertIn("پاسخ", text)
+        self.assertNotIn("🟢", text)
+        self.assertNotIn("۴۸ ساعت", text)
+
+    def test_normal_report_leads_with_plain_usable_conclusion(self):
+        text = report_text(assess(payload((0.8,)*4)), NOW, [], [], [])
+        self.assertIn("روال", text)
+        self.assertNotIn("۰٪ کمتر", text)
+        self.assertNotIn("NetBlocks", text)
+
 
     def test_env_is_data_not_executable_shell(self):
         with tempfile.TemporaryDirectory() as tmp:

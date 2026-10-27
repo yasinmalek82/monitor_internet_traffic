@@ -25,6 +25,7 @@ case "${1:-help}" in
             -p CPUUsageNSec -p CPUQuotaPerSecUSec -p TasksCurrent
         ;;
     check) as_monitor check ;;
+    diagnose) as_monitor diagnose ;;
     demo) as_monitor demo --output "$STATE/demo" ;;
     configure)
         [[ $EUID -eq 0 ]] || { echo 'Run: sudo iran-monitor configure' >&2; exit 1; }
@@ -67,6 +68,6 @@ case "${1:-help}" in
         echo 'Service and code removed. Credentials, data and cache were preserved in /etc, /var/lib and /var/cache.'
         ;;
     *)
-        echo 'Usage: sudo iran-monitor {status|logs|follow|resources|check|configure|start|stop|restart|update|demo|uninstall}'
+        echo 'Usage: sudo iran-monitor {status|logs|follow|resources|check|diagnose|configure|start|stop|restart|update|demo|uninstall}'
         ;;
 esac

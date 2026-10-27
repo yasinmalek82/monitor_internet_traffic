@@ -14,8 +14,10 @@ class FakeRadar:
     def __init__(self):
         self.data = payload()
         self.fail = False
+        self.calls = 0
 
     def traffic(self, now):
+        self.calls += 1
         if self.fail:
             raise SourceError("network failure")
         return self.data
@@ -99,6 +101,36 @@ class MonitorTests(unittest.TestCase):
         self.monitor.refresh(NOW)
         result, _, _, _ = self.monitor.current(NOW + timedelta(hours=3))
         self.assertEqual(result.status, "unknown")
+
+    def test_status_retries_stale_source_and_keeps_repeated_commands_bounded(self):
+        now = NOW + timedelta(hours=3)
+        self.monitor.refresh(now)
+        owner = {"message": {"chat": {"id": 42, "type": "private"}, "text": "/status"}}
+        self.monitor.handle(owner, now + timedelta(seconds=65))
+        self.monitor.handle(owner, now + timedelta(seconds=70))
+        self.assertEqual(self.radar.calls, 2)
+        self.assertIn("در آن زمان", self.telegram.sent[-1][1])
+        self.assertEqual(self.store.get("unknown_count"), 1)
+
+    def test_failed_fetch_preserves_last_known_numeric_analysis(self):
+        self.monitor.refresh(NOW)
+        self.radar.fail = True
+        with self.assertLogs("iran_monitor.app", level="WARNING"):
+            self.monitor.refresh(NOW + timedelta(minutes=5))
+        result, _, _, _ = self.monitor.current(NOW + timedelta(minutes=5))
+        self.assertEqual(result.status, "unknown")
+        self.assertEqual(result.historical_status, "severe")
+        self.assertAlmostEqual(result.drop_percent, 62.5)
+
+    def test_private_diagnostics_include_fetch_and_data_times_without_secrets(self):
+        self.monitor.refresh(NOW)
+        self.monitor.handle({"message": {"chat": {"id": 42, "type": "private"}, "text": "/diagnostics"}}, NOW)
+        text = self.telegram.sent[-1][1]
+        self.assertIn("آخرین دریافت موفق", text)
+        self.assertIn("UTC", text)
+        self.assertIn("2026-10-27T12:00", text)
+        self.assertNotIn("123:test", text)
+
 
     def test_unauthorized_command_has_no_outbound_side_effect(self):
         self.monitor.handle({"update_id": 1, "message": {"chat": {"id": 99, "type": "private"}, "text": "/chart"}}, NOW)

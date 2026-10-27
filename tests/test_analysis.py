@@ -51,6 +51,21 @@ class AnalysisTests(unittest.TestCase):
         data = parse_radar(payload())
         self.assertEqual(analyze(data, NOW + timedelta(hours=3)).status, "unknown")
 
+    def test_stale_valid_data_retains_a_separate_last_known_analysis(self):
+        result = analyze(parse_radar(payload()), NOW + timedelta(minutes=60))
+        self.assertEqual(result.status, "unknown")
+        self.assertEqual(result.historical_status, "severe")
+        self.assertAlmostEqual(result.drop_percent, 62.5)
+        self.assertEqual(result.duration_minutes, 30)
+        self.assertFalse(result.recovery_ready)
+
+    def test_stale_bad_quality_data_does_not_gain_a_historical_conclusion(self):
+        data = payload()
+        data["result"]["meta"]["confidenceInfo"]["level"] = 2
+        result = analyze(parse_radar(data), NOW + timedelta(hours=3))
+        self.assertIsNone(result.historical_status)
+        self.assertIsNone(result.drop_percent)
+
     def test_low_source_confidence_suppresses_alert(self):
         data = payload()
         data["result"]["meta"]["confidenceInfo"]["level"] = 3

@@ -11,7 +11,8 @@ def main():
     request = json.load(sys.stdin)
     result = request["assessment"]
     points = tuple(Point(timestamp(p["time"]), p["current"], p["baseline"]) for p in result["points"])
-    assessment = Assessment(result["status"], result["reason"], points)
+    assessment = Assessment(result["status"], result["reason"], points,
+                            historical_status=result.get("historical_status"))
     sys.stdout.buffer.write(draw_chart(assessment, demo=request["demo"]))
 
 
