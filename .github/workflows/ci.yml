@@ -1,0 +1,62 @@
+name: Test and Linux installation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.1"
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.12
+      - name: Test Python and installer behavior
+        run: uv run --locked python -m unittest discover -v
+      - name: Check installer shell scripts
+        run: |
+          bash -n install.sh deploy/iran-monitor
+          shellcheck install.sh deploy/iran-monitor
+      - name: Measure Linux resource use without credentials
+        run: uv run --locked python scripts/measure_resources.py
+      - name: Install real systemd service without starting monitoring
+        run: |
+          sudo bash install.sh --source "$GITHUB_WORKSPACE" --no-start
+          sudo systemd-analyze verify /etc/systemd/system/iran-internet-monitor.service
+          sudo touch /var/lib/iran-internet-monitor/preserve-test
+          sudo sha256sum /etc/iran-internet-monitor/monitor.env > /tmp/config-before
+          sudo bash install.sh --source "$GITHUB_WORKSPACE" --no-start
+          sudo sha256sum --check /tmp/config-before
+          sudo test -f /var/lib/iran-internet-monitor/preserve-test
+          test "$(sudo find /opt/iran-internet-monitor/releases -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 2
+      - name: Render under actual service CPU, memory and filesystem limits
+        run: |
+          sudo mkdir -p /run/systemd/system/iran-internet-monitor.service.d
+          sudo tee /run/systemd/system/iran-internet-monitor.service.d/smoke.conf > /dev/null <<'EOF'
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          Restart=no
+          ExecStart=
+          ExecStart=/opt/iran-internet-monitor/current/.venv/bin/python -m iran_monitor demo --output /var/lib/iran-internet-monitor/smoke
+          EOF
+          sudo systemctl daemon-reload
+          sudo systemctl start iran-internet-monitor.service
+          sudo test -s /var/lib/iran-internet-monitor/smoke/demo.png
+          sudo iran-monitor resources
+          sudo journalctl -u iran-internet-monitor.service -n 20 --no-pager
+      - name: Verify uninstall preserves credentials and state
+        run: |
+          sudo iran-monitor uninstall
+          sudo test -f /etc/iran-internet-monitor/monitor.env
+          sudo test -f /var/lib/iran-internet-monitor/preserve-test
+          test ! -e /opt/iran-internet-monitor

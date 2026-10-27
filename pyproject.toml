@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iran-internet-monitor"
+version = "0.1.0"
+description = "Private Telegram alerts and plain Persian reports for Iran's Internet traffic"
+requires-python = ">=3.12"
+dependencies = ["matplotlib>=3.11,<4"]
+
+[project.scripts]
+iran-monitor = "iran_monitor.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["iran_monitor*"]

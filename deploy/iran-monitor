@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+UNIT=iran-internet-monitor.service
+PREFIX=/opt/iran-internet-monitor
+CONFIG=/etc/iran-internet-monitor/monitor.env
+STATE=/var/lib/iran-internet-monitor
+INSTALL_URL=https://raw.githubusercontent.com/yasinmalek82/monitor_internet_traffic/main/install.sh
+
+as_monitor() {
+    cd "$PREFIX/current"
+    runuser -u iran-monitor -- env DATA_DIR="$STATE" \
+        MPLCONFIGDIR=/var/cache/iran-internet-monitor/matplotlib \
+        XDG_CACHE_HOME=/var/cache/iran-internet-monitor PYTHONDONTWRITEBYTECODE=1 \
+        "$PREFIX/current/.venv/bin/python" -m iran_monitor --env "$CONFIG" "$@"
+}
+
+case "${1:-help}" in
+    status) exec systemctl status "$UNIT" --no-pager ;;
+    logs) exec journalctl -u "$UNIT" -n 60 --no-pager ;;
+    follow) exec journalctl -u "$UNIT" -n 30 -f ;;
+    start|stop|restart) exec systemctl "$1" "$UNIT" ;;
+    resources)
+        exec systemctl show "$UNIT" -p MemoryCurrent -p MemoryPeak -p MemoryHigh -p MemoryMax \
+            -p CPUUsageNSec -p CPUQuotaPerSecUSec -p TasksCurrent
+        ;;
+    check) as_monitor check ;;
+    demo) as_monitor demo --output "$STATE/demo" ;;
+    configure)
+        [[ $EUID -eq 0 ]] || { echo 'Run: sudo iran-monitor configure' >&2; exit 1; }
+        backup=$(mktemp /etc/iran-internet-monitor/.backup.XXXXXX)
+        cp -p "$CONFIG" "$backup"
+        was_active=false
+        if systemctl is-active --quiet "$UNIT"; then was_active=true; fi
+        systemctl stop "$UNIT"
+        cd "$PREFIX/current"
+        if "$PREFIX/current/.venv/bin/python" -m iran_monitor --env "$CONFIG" configure </dev/tty; then
+            chown root:iran-monitor "$CONFIG"
+            chmod 0640 "$CONFIG"
+            if as_monitor check; then
+                rm -f "$backup"
+                systemctl enable --now "$UNIT"
+                exit 0
+            fi
+        fi
+        mv -f "$backup" "$CONFIG"
+        if "$was_active"; then systemctl start "$UNIT"; fi
+        echo 'Configuration/check failed; previous settings were restored.' >&2
+        exit 1
+        ;;
+    update)
+        [[ $EUID -eq 0 ]] || { echo 'Run: sudo iran-monitor update' >&2; exit 1; }
+        installer=$(mktemp)
+        trap 'rm -f "$installer"' EXIT
+        curl --fail --silent --show-error --location --connect-timeout 15 --max-time 120 "$INSTALL_URL" -o "$installer"
+        shift
+        bash "$installer" "$@"
+        ;;
+    uninstall)
+        [[ $EUID -eq 0 ]] || { echo 'Run: sudo iran-monitor uninstall' >&2; exit 1; }
+        [[ -f "$PREFIX/.managed-by-iran-monitor" ]] || { echo 'Managed installation marker missing.' >&2; exit 1; }
+        systemctl disable --now "$UNIT"
+        rm -f "/etc/systemd/system/$UNIT"
+        systemctl daemon-reload
+        rm -rf "$PREFIX"
+        rm -f /usr/local/bin/iran-monitor
+        echo 'Service and code removed. Credentials, data and cache were preserved in /etc, /var/lib and /var/cache.'
+        ;;
+    *)
+        echo 'Usage: sudo iran-monitor {status|logs|follow|resources|check|configure|start|stop|restart|update|demo|uninstall}'
+        ;;
+esac
