@@ -105,11 +105,20 @@ class MonitorTests(unittest.TestCase):
     def test_status_retries_stale_source_and_keeps_repeated_commands_bounded(self):
         now = NOW + timedelta(hours=3)
         self.monitor.refresh(now)
+        jobs = []
+        def submit(job):
+            if job in jobs:
+                return False
+            jobs.append(job)
+            return True
+        self.monitor.submit = submit
         owner = {"message": {"chat": {"id": 42, "type": "private"}, "text": "/status"}}
         self.monitor.handle(owner, now + timedelta(seconds=65))
         self.monitor.handle(owner, now + timedelta(seconds=70))
-        self.assertEqual(self.radar.calls, 2)
+        self.assertEqual(self.radar.calls, 1)
+        self.assertEqual(jobs, ["status"])
         self.assertIn("در آن زمان", self.telegram.sent[-1][1])
+        self.assertIn("جریان", self.telegram.sent[-1][1])
         self.assertEqual(self.store.get("unknown_count"), 1)
 
     def test_failed_fetch_preserves_last_known_numeric_analysis(self):
@@ -139,9 +148,11 @@ class MonitorTests(unittest.TestCase):
     def test_owner_receives_persian_report_and_chart(self):
         self.radar.data = payload((0.8,)*4)
         self.monitor.refresh(NOW)
+        jobs = []
+        self.monitor.submit = lambda job: jobs.append(job) or True
         self.monitor.handle({"message": {"chat": {"id": 42, "type": "private"}, "text": "/chart"}}, NOW)
-        self.assertEqual(self.telegram.sent[-1][0], b"PNG")
-        self.assertIn("ترافیک", self.telegram.sent[-1][1])
+        self.assertEqual(jobs, ["chart"])
+        self.assertIn("نمودار", self.telegram.sent[-1][1])
 
     def test_recovery_is_sent_once_and_history_records_delivered_events(self):
         self.monitor.refresh(NOW)

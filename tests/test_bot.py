@@ -12,6 +12,12 @@ from tests.test_analysis import NOW, assess, payload
 
 
 class BotTests(unittest.TestCase):
+    def test_owner_can_use_plain_status_and_persian_status(self):
+        for text in ("status", "STATUS", "وضعیت", "/status"):
+            update = {"message": {"chat": {"id": 42, "type": "private"}, "text": text}}
+            self.assertEqual(authorized_command(update, 42), "status")
+            self.assertIsNone(authorized_command(update, 43))
+
     def test_telegram_http_failure_retains_status_for_retry_and_fatal_handling(self):
         def request(*args, **kwargs):
             raise SourceError("Remote HTTP error 429", status=429, retry_after=37)

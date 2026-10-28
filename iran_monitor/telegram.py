@@ -18,8 +18,12 @@ def authorized_command(update: dict, owner_id: int) -> str | None:
         return None
     text = message.get("text") or ""
     parts = text.strip().split()
-    if not parts or not parts[0].startswith("/"):
+    if not parts:
         return None
+    if not parts[0].startswith("/"):
+        aliases = {"status": "status", "وضعیت": "status", "chart": "chart", "نمودار": "chart",
+                   "help": "help", "راهنما": "help", "diagnostics": "diagnostics"}
+        return aliases.get(text.strip().lower())
     return parts[0].split("@", 1)[0][1:].lower()
 
 

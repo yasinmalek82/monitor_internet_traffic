@@ -5,7 +5,6 @@ import math
 import signal
 import sys
 import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -40,9 +39,10 @@ def demo(output: Path):
 
 
 def verify_telegram(client):
-    client.call("getMe")
+    bot = client.call("getMe")
     if client.call("getWebhookInfo").get("url"):
         raise ValueError("This bot already has a webhook. Use a dedicated bot or remove that webhook yourself before polling.")
+    return bot
 
 
 def check(config: Config):
@@ -69,6 +69,15 @@ def check(config: Config):
 
 def diagnose(config: Config, *, now=None):
     now = now or datetime.now(UTC)
+    client = TelegramClient(config.bot_token, config.chat_id)
+    try:
+        bot = verify_telegram(client)
+        chat = client.call("getChat", {"chat_id": config.chat_id})
+        print(f"ربات متصل در Telegram: @{bot.get('username', 'unknown')}")
+        print(f"شناسهٔ چت مجاز: {config.chat_id} | نوع چت: {chat.get('type', 'unknown')}")
+    except (SourceError, TelegramError, ValueError) as exc:
+        print(f"بررسی اتصال Telegram ناموفق بود: {exc}")
+        return 2
     try:
         payload = RadarClient(config.radar_token).traffic(now)
     except (SourceError, ValueError, KeyError, TypeError) as exc:
@@ -80,6 +89,7 @@ def diagnose(config: Config, *, now=None):
 
 def run(config: Config):
     from .app import Monitor
+    from .runtime import BackgroundMonitor, process_updates
     config.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (config.data_dir / "monitor.lock").open("a") as lock:
         try:
@@ -92,20 +102,15 @@ def run(config: Config):
         stop = threading.Event()
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, lambda *_: stop.set())
-        monitor = Monitor(config, store, RadarClient(config.radar_token), client)
-        due, backoff = 0.0, 5
+        worker = BackgroundMonitor(config, client)
+        monitor = Monitor(config, store, RadarClient(config.radar_token), client, submit=worker.submit)
+        backoff = 5
+        worker.start()
         LOG.info("Monitoring started; interval=%ss", config.poll_seconds)
         try:
             while not stop.is_set():
                 try:
-                    if time.monotonic() >= due:
-                        due = time.monotonic() + config.poll_seconds
-                        monitor.refresh(datetime.now(UTC))
-                    for update in client.updates(store.get("telegram_offset", 0)):
-                        if stop.is_set():
-                            break
-                        monitor.handle(update, datetime.now(UTC))
-                        store.set("telegram_offset", update["update_id"] + 1)
+                    process_updates(monitor, store, client.updates(store.get("telegram_offset", 0)), stop=stop)
                     backoff = 5
                 except TelegramError as exc:
                     if exc.code in (401, 409):
@@ -117,6 +122,7 @@ def run(config: Config):
                     stop.wait(backoff)
                     backoff = min(backoff * 2, 60)
         finally:
+            worker.close()
             store.close()
 
 

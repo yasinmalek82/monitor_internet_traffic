@@ -21,9 +21,10 @@ HELP = ("نبض اینترنت ایران\n\n/status — وضعیت و توضی�
 
 class Monitor:
     def __init__(self, config: Config, store: Store, radar, telegram,
-                 netblocks=netblocks_reports, chart=render_chart):
+                 netblocks=netblocks_reports, chart=render_chart, *, submit=None):
         self.config, self.store, self.radar, self.telegram = config, store, radar, telegram
         self.netblocks, self.chart = netblocks, chart
+        self.submit = submit
 
     def refresh(self, now: datetime, *, notify=True):
         self.store.set("traffic_checked_at", now.isoformat())
@@ -99,6 +100,12 @@ class Monitor:
             ("checked_at", self.store.get("traffic_checked_at")),
             ("fetched_at", self.store.get("traffic_fetched_at")))}
 
+    def needs_refresh(self, now):
+        result, _, _, _ = self.current(now)
+        checked = self.fetch_times()["checked_at"]
+        interval = 60 if result.status == "unknown" else self.config.poll_seconds
+        return checked is None or now - checked >= timedelta(seconds=interval)
+
     def send_chart(self, result, text):
         try:
             png = self.chart(result)
@@ -112,19 +119,23 @@ class Monitor:
         command = authorized_command(update, self.config.chat_id)
         if command is None:
             return
+        known = {"start", "help", "status", "chart", "history", "sources", "diagnostics"}
+        LOG.info("Received owner command: %s", command if command in known else "unknown")
         if command in ("start", "help"):
             self.telegram.message(HELP)
         elif command in ("status", "chart"):
             result, reports, outages, warnings = self.current(now)
-            checked = self.fetch_times()["checked_at"]
-            interval = 60 if result.status == "unknown" else self.config.poll_seconds
-            if checked is None or now - checked >= timedelta(seconds=interval):
-                self.refresh(now, notify=False)
-                result, reports, outages, warnings = self.current(now)
             text = report_text(result, now, reports, outages, warnings, **self.fetch_times())
             if command == "chart":
-                self.send_chart(result, text)
+                queued = self.submit and self.submit("chart")
+                self.telegram.message("⏳ نمودار در صف پردازش است؛ نتیجه را می‌فرستم." if queued else
+                                      "نمودار قبلی هنوز در حال پردازش است؛ وضعیت متنی را با /status ببین.")
             else:
+                if self.submit and (self.needs_refresh(now) or not self.store.get("snapshot")):
+                    if self.submit("status"):
+                        text += "\n⏳ دریافت دادهٔ تازه در پس‌زمینه آغاز شد؛ نتیجه را می‌فرستم."
+                    else:
+                        text += "\n⏳ دریافت قبلی هنوز در جریان است؛ نتیجه را می‌فرستم."
                 self.telegram.message(text)
         elif command == "diagnostics":
             self.telegram.message(diagnostics_text(now, self.store.get("snapshot"),
