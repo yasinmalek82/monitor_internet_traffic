@@ -118,8 +118,17 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.radar.calls, 1)
         self.assertEqual(jobs, ["status"])
         self.assertIn("در آن زمان", self.telegram.sent[-1][1])
-        self.assertIn("جریان", self.telegram.sent[-1][1])
+        self.assertIn("جداگانه", self.telegram.sent[-1][1])
         self.assertEqual(self.store.get("unknown_count"), 1)
+
+    def test_immediate_reply_precedes_even_an_instant_background_result(self):
+        def submit(kind):
+            self.telegram.message("FINAL BACKGROUND REPORT")
+            return True
+        self.monitor.submit = submit
+        self.monitor.handle({"message": {"chat": {"id": 42, "type": "private"}, "text": "/status"}}, NOW)
+        self.assertEqual(self.telegram.sent[-1][1], "FINAL BACKGROUND REPORT")
+        self.assertIn("جداگانه", self.telegram.sent[0][1])
 
     def test_failed_fetch_preserves_last_known_numeric_analysis(self):
         self.monitor.refresh(NOW)

@@ -127,16 +127,18 @@ class Monitor:
             result, reports, outages, warnings = self.current(now)
             text = report_text(result, now, reports, outages, warnings, **self.fetch_times())
             if command == "chart":
-                queued = self.submit and self.submit("chart")
-                self.telegram.message("⏳ نمودار در صف پردازش است؛ نتیجه را می‌فرستم." if queued else
-                                      "نمودار قبلی هنوز در حال پردازش است؛ وضعیت متنی را با /status ببین.")
+                if self.submit:
+                    self.telegram.message("⏳ درخواست نمودار دریافت شد؛ پس از پردازش آن را می‌فرستم.")
+                    self.submit("chart")
+                else:
+                    self.telegram.message("نمودار در این اجرا فعال نیست؛ وضعیت متنی را با /status ببین.")
             else:
-                if self.submit and (self.needs_refresh(now) or not self.store.get("snapshot")):
-                    if self.submit("status"):
-                        text += "\n⏳ دریافت دادهٔ تازه در پس‌زمینه آغاز شد؛ نتیجه را می‌فرستم."
-                    else:
-                        text += "\n⏳ دریافت قبلی هنوز در جریان است؛ نتیجه را می‌فرستم."
+                refresh = self.submit and (self.needs_refresh(now) or not self.store.get("snapshot"))
+                if refresh:
+                    text += "\n⏳ نتیجهٔ بررسی دادهٔ تازه را جداگانه می‌فرستم."
                 self.telegram.message(text)
+                if refresh:
+                    self.submit("status")
         elif command == "diagnostics":
             self.telegram.message(diagnostics_text(now, self.store.get("snapshot"),
                                   fetch_error=self.store.get("traffic_error_detail"), **self.fetch_times()))
